@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EEGist: the gist of an emergency EEG</title>
+<meta name="description" content="Recovering the findings of the clinical EEG report from the whole recording in emergency-department patients: a feature model and three deep networks, tested on held-out patients and on three public datasets.">
+<style>
+:root{
+  --bg:#060A13; --bg2:#0B1220; --panel:rgba(255,255,255,.045); --line:rgba(255,255,255,.10);
+  --text:#E8EEF7; --muted:#93A3BA; --accent:#F2C14E; --teal:#2DD4BF;
+  --roi:#6FA8DC; --eegnet:#E58A6E; --ddc:#3FC2AB; --sgc:#A98BE0;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font:17px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+#bg{position:fixed;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
+.veil{position:fixed;inset:0;z-index:0;pointer-events:none;background:radial-gradient(1200px 600px at 50% -10%,rgba(45,212,191,.10),transparent 60%),linear-gradient(180deg,rgba(6,10,19,.55),rgba(6,10,19,.86) 70%)}
+main,header,footer{position:relative;z-index:1}
+.wrap{max-width:1080px;margin:0 auto;padding:0 20px}
+a{color:var(--teal);text-decoration:none} a:hover{text-decoration:underline}
+nav{position:sticky;top:0;z-index:5;backdrop-filter:blur(10px);background:rgba(6,10,19,.65);border-bottom:1px solid var(--line)}
+nav .wrap{display:flex;gap:22px;align-items:center;height:54px;font-size:14.5px}
+nav b{letter-spacing:.14em;font-size:15px;margin-right:auto}
+nav a{color:var(--muted)} nav a:hover{color:var(--text);text-decoration:none}
+.hero{padding:96px 0 56px;text-align:center}
+.hero h1{font-size:clamp(54px,11vw,128px);line-height:1;margin:0;letter-spacing:-.03em;font-weight:800;background:linear-gradient(100deg,#fff 20%,var(--teal) 55%,var(--accent));-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero .tag{font-size:clamp(19px,3vw,27px);color:var(--text);margin:14px 0 6px}
+.hero .sub{color:var(--muted);max-width:720px;margin:0 auto}
+#heroTrace{display:block;margin:26px auto 4px;width:min(760px,92%);height:70px}
+.btns{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:22px}
+.btn{padding:10px 20px;border-radius:999px;border:1px solid var(--line);background:var(--panel);color:var(--text);font-size:15px}
+.btn.primary{background:var(--teal);color:#032;border-color:transparent;font-weight:600}
+.btn:hover{text-decoration:none;border-color:var(--teal)}
+.btn.off{opacity:.55;pointer-events:none}
+.authors{text-align:center;font-size:16px;margin:18px auto 0;max-width:860px}
+.affil{text-align:center;font-size:13px;color:var(--muted);max-width:900px;margin:8px auto 0}
+sup{font-size:.65em}
+section{padding:58px 0}
+h2{font-size:30px;letter-spacing:-.01em;margin:0 0 8px}
+h2 small{display:block;font-size:13px;letter-spacing:.18em;color:var(--teal);text-transform:uppercase;margin-bottom:6px;font-weight:600}
+p.lead{color:var(--muted);max-width:780px;margin:6px 0 22px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:22px}
+.reveal{opacity:0;transform:translateY(18px);transition:opacity .8s,transform .8s} .reveal.in{opacity:1;transform:none}
+/* pipeline */
+.pipe{display:grid;grid-template-columns:1.25fr auto 1fr auto 1.2fr;gap:14px;align-items:center}
+.pipe h3{font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 8px;font-weight:600}
+.arrow{width:46px;height:2px;background:repeating-linear-gradient(90deg,var(--teal) 0 8px,transparent 8px 14px);animation:flow 1s linear infinite;position:relative}
+.arrow:after{content:"";position:absolute;right:-2px;top:-5px;border:6px solid transparent;border-left:9px solid var(--teal)}
+@keyframes flow{to{background-position:14px 0}}
+#raw{width:100%;height:170px;display:block;border-radius:10px;background:rgba(0,0,0,.25)}
+.models{display:grid;gap:8px}
+.chip{padding:9px 12px;border-radius:10px;border:1px solid var(--line);font-size:14px;display:flex;align-items:center;gap:9px;animation:pulse 3.2s infinite}
+.chip i{width:10px;height:10px;border-radius:50%;display:inline-block}
+.chip:nth-child(2){animation-delay:.5s}.chip:nth-child(3){animation-delay:1s}.chip:nth-child(4){animation-delay:1.5s}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 transparent}50%{box-shadow:0 0 18px -2px rgba(45,212,191,.5)}}
+.finds{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.find{background:rgba(0,0,0,.25);border:1px solid var(--line);border-radius:10px;padding:6px 6px 8px;cursor:pointer;color:var(--text);text-align:center;font:inherit;font-size:11.5px;line-height:1.25;transition:border-color .2s,transform .2s}
+.find:hover,.find.sel{border-color:var(--accent);transform:translateY(-2px)}
+.find canvas{width:100%;height:46px;display:block}
+.explain{display:grid;grid-template-columns:1.3fr 1fr;gap:20px;margin-top:20px;align-items:center}
+#big{width:100%;height:230px;border-radius:12px;background:rgba(0,0,0,.3);display:block}
+#bigTitle{font-size:21px;font-weight:700;margin:0 0 6px;color:var(--accent)}
+.note{font-size:12.5px;color:var(--muted)}
+/* stats */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.stat{padding:20px 18px}
+.stat .n{font-size:clamp(34px,5vw,50px);font-weight:800;line-height:1.05;letter-spacing:-.02em;background:linear-gradient(120deg,#fff,var(--teal));-webkit-background-clip:text;background-clip:text;color:transparent}
+.stat .l{color:var(--muted);font-size:14px;margin-top:4px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:13.5px;color:var(--muted);margin:6px 0 14px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:11px;height:11px;border-radius:3px;display:inline-block}
+svg text{fill:var(--muted);font:12px system-ui,sans-serif}
+svg .t{fill:var(--text)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;margin-bottom:10px}
+.seg button{background:transparent;border:0;color:var(--muted);padding:6px 14px;font:inherit;font-size:13.5px;cursor:pointer}
+.seg button.on{background:var(--teal);color:#032;font-weight:600}
+.big-claim{font-size:19px;margin:0 0 4px}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
+.kpi{background:rgba(0,0,0,.25);border-radius:12px;padding:12px 14px}
+.kpi b{font-size:26px;display:block;color:var(--accent);letter-spacing:-.01em}
+.kpi span{font-size:13px;color:var(--muted)}
+/* bandwidth */
+#spec{width:100%;height:210px;display:block;border-radius:10px;background:rgba(0,0,0,.25)}
+.bars{display:grid;gap:12px}
+.bar small{color:var(--muted);font-size:11.5px}
+.bar{display:grid;grid-template-columns:170px 1fr 46px;gap:10px;align-items:center;font-size:13.5px}
+.track{height:14px;border-radius:7px;background:rgba(255,255,255,.08);overflow:hidden}
+.fill{height:100%;border-radius:7px;width:0}
+.toggle{display:inline-flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:7px 16px 7px 8px;cursor:pointer;color:var(--text);font:inherit;font-size:14px;margin-bottom:14px}
+.toggle .sw{width:38px;height:22px;border-radius:11px;background:rgba(255,255,255,.18);position:relative;transition:.3s}
+.toggle .sw:after{content:"";position:absolute;left:3px;top:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.3s}
+.toggle.on .sw{background:var(--accent)} .toggle.on .sw:after{left:19px}
+ul.clean{margin:8px 0 0;padding-left:20px;color:var(--muted)} ul.clean li{margin:6px 0}
+pre{background:rgba(0,0,0,.4);border:1px solid var(--line);border-radius:12px;padding:16px;overflow:auto;font-size:13px;line-height:1.5;color:#cfe3ff}
+footer{padding:34px 0 60px;color:var(--muted);font-size:13.5px;text-align:center;border-top:1px solid var(--line)}
+.tip{position:fixed;z-index:20;pointer-events:none;background:#101a2e;border:1px solid var(--line);padding:7px 10px;border-radius:8px;font-size:12.5px;opacity:0;transition:opacity .15s;white-space:nowrap}
+@media(max-width:900px){
+  .pipe{grid-template-columns:1fr}.arrow{transform:rotate(90deg);margin:6px auto}
+  .stats{grid-template-columns:1fr 1fr}.grid2,.explain{grid-template-columns:1fr}.kpis{grid-template-columns:1fr}
+  .bar{grid-template-columns:120px 1fr 40px} nav a.hide{display:none}
+}
+</style>
+</head>
+<body>
+<canvas id="bg" aria-hidden="true"></canvas><div class="veil"></div>
+
+<nav><div class="wrap"><b>EEGIST</b><a href="#how">How it works</a><a href="#results">Results</a><a href="#transfer" class="hide">External data</a><a href="#scope" class="hide">Scope</a><a href="#cite">Citation</a></div></nav>
+
+<header class="hero"><div class="wrap">
+  <h1>EEGist</h1>
+  <p class="tag">The gist of an emergency EEG.</p>
+  <p class="sub">Recovering the findings of the clinical EEG report from the whole recording, in emergency-department patients, with a feature model and three deep networks, tested on held-out patients and on three public datasets.</p>
+  <canvas id="heroTrace" aria-hidden="true"></canvas>
+  <div class="btns"><span class="btn primary off">Paper (coming soon)</span><span class="btn off">Code (on request)</span><a class="btn" href="#cite">Citation</a></div>
+  <p class="authors">Piergiuseppe Liuzzi<sup>1</sup>, Maenia Scarpino<sup>2</sup>, Leonardo Corsi<sup>1,*</sup>, Benedetta Piccardi<sup>3</sup>, Peiman Nazerian<sup>4</sup>, Ilaria Sgrilli<sup>2</sup>, Calogero Maria Oddo<sup>5,6</sup>, Andrea Nencioni<sup>4</sup>, Andrea Mannini<sup>1,†</sup> &amp; Antonello Grippo<sup>2,†</sup></p>
+  <p class="affil"><sup>1</sup>IRCCS Fondazione Don Carlo Gnocchi ETS, Florence, Italy · <sup>2</sup>Neurophysiopathology Unit, Careggi University Hospital, Florence, Italy · <sup>3</sup>Stroke Unit, Careggi University Hospital, Florence, Italy · <sup>4</sup>Emergency Department, Careggi University Hospital, Florence, Italy · <sup>5</sup>The BioRobotics Institute, Scuola Superiore Sant’Anna, Pisa, Italy · <sup>6</sup>[second affiliation] · *corresponding author · <sup>†</sup>equal contribution</p>
+</div></header>
+
+<main>
+<section><div class="wrap reveal">
+  <h2><small>Abstract</small>What is in a routine EEG report, and can it be read from the signal?</h2>
+  <p class="lead">Routine EEG guides the emergency care of seizures and altered consciousness, but expert reading is scarce and varies between readers. In 1,510 emergency patients, split at patient level, we compared a model on region-of-interest summary features of the whole recording with three deep networks on the raw 19-channel signal, for eight findings of the clinical report. All models were tested on held-out patients with complete-recording inference and then, without retraining, on three public datasets. The findings were recovered with AUROC between 0.68 and 0.90; explanations of the deep networks were tested for faithfulness, stability and dependence on what the network learned. These results measure agreement with a clinician’s report, not with a physiological ground truth.</p>
+</div></section>
+
+<section id="how"><div class="wrap reveal">
+  <h2><small>How it works</small>From the whole recording to eight report findings</h2>
+  <p class="lead">Every window of the recording is scored, the window scores are averaged, and each model returns a probability for each finding. Click a finding to see the kind of signal change that defines it.</p>
+  <div class="card">
+    <div class="pipe">
+      <div><h3>1 · Complete recording</h3><canvas id="raw"></canvas><div class="note">Sliding 10 s window over 19 channels (schematic).</div></div>
+      <div class="arrow"></div>
+      <div><h3>2 · Four models</h3><div class="models">
+        <div class="chip"><i style="background:var(--roi)"></i>ROI-feature model</div>
+        <div class="chip"><i style="background:var(--eegnet)"></i>EEGNet</div>
+        <div class="chip"><i style="background:var(--ddc)"></i>DualDomainConformer</div>
+        <div class="chip"><i style="background:var(--sgc)"></i>SpatialGraphConformer</div></div></div>
+      <div class="arrow"></div>
+      <div><h3>3 · Report findings</h3><div class="finds" id="finds"></div></div>
+    </div>
+    <div class="explain">
+      <canvas id="big"></canvas>
+      <div><p id="bigTitle"></p><p id="bigText" style="margin:0;color:var(--muted)"></p><p class="note" style="margin-top:10px">Schematic illustration of each pattern; not patient data.</p></div>
+    </div>
+  </div>
+</div></section>
+
+<section id="results"><div class="wrap">
+  <h2 class="reveal"><small>Results</small>A few results that matter</h2>
+  <div class="stats reveal" style="margin-top:20px">
+    <div class="card stat"><div class="n" data-count="1510" data-dec="0">0</div><div class="l">emergency patients, 504 hours of EEG</div></div>
+    <div class="card stat"><div class="n" data-count="0.896" data-dec="3">0</div><div class="l">best AUROC on held-out patients (background frequency)</div></div>
+    <div class="card stat"><div class="n" data-count="5510" data-dec="0">0</div><div class="l">external recordings scored, 1,620 hours, no retraining</div></div>
+    <div class="card stat"><div class="n" data-count="24" data-dec="0" data-suffix=" / 24">0</div><div class="l">model–finding pairs with faithful explanations</div></div>
+  </div>
+
+  <div class="card reveal" style="margin-top:22px">
+    <p class="big-claim"><b>1 · Findings of the report are recoverable from the signal.</b></p>
+    <p class="note" style="margin-bottom:8px">AUROC on 302 held-out test patients, complete recordings; bars are 95% patient-bootstrap intervals. Hover for values.</p>
+    <div class="legend" id="legModels"></div>
+    <svg id="dots" role="img" aria-label="AUROC by finding and model" style="width:100%;height:auto"></svg>
+    <div class="kpis">
+      <div class="kpi"><b>0.87</b><span>abnormal EEG, deep networks (feature model 0.86)</span></div>
+      <div class="kpi"><b>0.89</b><span>asymmetry with the SpatialGraphConformer (feature model 0.83)</span></div>
+      <div class="kpi"><b>0.68–0.71</b><span>bilateral slowing, the hardest finding for every model</span></div>
+    </div>
+  </div>
+
+  <div class="card reveal" id="transfer" style="margin-top:22px">
+    <p class="big-claim"><b>2 · The models transfer to other hospitals, countries and recording systems.</b></p>
+    <p class="note">Models applied unchanged to public datasets; thresholds and recalibration come from our validation patients only. NMT: 2,417 recordings (Pakistan). TUH: 2,993 recordings (USA). IFCN: epileptiform model against a clinical epilepsy diagnosis in 100 selected clips.</p>
+    <div class="seg" id="seg"><button class="on" data-m="auroc">AUROC</button><button data-m="spec">Specificity at the fixed threshold 0.5</button></div>
+    <svg id="ext" role="img" aria-label="External validation" style="width:100%;height:auto"></svg>
+    <p class="note">The ROI-feature model was not tested externally. Ranking ability transfers for all models; probabilities of the Conformers are more sensitive to the data they meet, as the next experiment shows.</p>
+  </div>
+
+  <div class="card reveal" style="margin-top:22px">
+    <p class="big-claim"><b>3 · What transfer requires: the full spectrum.</b></p>
+    <p class="note">The NMT recordings contain almost no power above about 35 Hz. We low-pass filtered 120 TUH records at 35 Hz and rescored them with the frozen models. Press the switch.</p>
+    <button class="toggle" id="lp"><span class="sw"></span><span>Band-limit the recording at 35 Hz</span></button>
+    <div class="grid2" style="margin-top:0">
+      <canvas id="spec"></canvas>
+      <div><p class="note" style="margin:0 0 8px"><b>Bars: average probability that the recording is abnormal (a score level, not accuracy).</b> Below each model, its AUROC, the ranking of recordings.</p><div class="bars" id="bw"></div><p class="note" style="margin-top:12px">Band-limiting shifts the scores of the Conformers, which read the 0.5–45 Hz spectrum, while the ranking of recordings is unchanged. Thresholds are therefore set for the recording system in use, with recalibration on its own validation data. EEGNet, which reads the raw signal, keeps the same scores.</p></div>
+    </div>
+  </div>
+
+  <div class="card reveal" style="margin-top:22px">
+    <p class="big-claim"><b>4 · The explanations were tested, not just displayed.</b></p>
+    <p class="note">Occlusion, Integrated Gradients, deletion, split-half stability, randomised networks, synthetic ground truth and concept probing, for 24 model–finding pairs.</p>
+    <div class="kpis">
+      <div class="kpi"><b>24 / 24</b><span>pairs where removing the attributed signal lowers confidence more than random removal</span></div>
+      <div class="kpi"><b>0.89–0.96</b><span>median split-half stability of the attribution maps, by model</span></div>
+      <div class="kpi"><b>0.11–0.50</b><span>median similarity to the maps of a re-initialised network (low is good), by model</span></div>
+    </div>
+    <p class="note" style="margin-top:12px">Inserted slow waves were localised to the expected band, and the focal-slowing and bilateral-slowing models responded differently to slowing in a few channels and slowing spread over both hemispheres.</p>
+  </div>
+</div></section>
+
+<section id="scope"><div class="wrap reveal">
+  <h2><small>Scope</small>How to read these results</h2>
+  <ul class="clean">
+    <li>The reference is the clinician’s report, a synthesis with measurement error: agreement with it is measured, not agreement with a physiological ground truth.</li>
+    <li>The test set has 302 patients, from one hospital and one period; confidence intervals are about ±0.04–0.05 wide, and almost all differences between models are within them.</li>
+    <li>External sets differ in population, labelling and recording; the IFCN reference is a clinical epilepsy diagnosis, not an annotation of epileptiform discharges.</li>
+    <li>Explanations describe the models, not causal physiology.</li>
+  </ul>
+</div></section>
+
+<section><div class="wrap reveal">
+  <h2><small>Data and code</small>Availability</h2>
+  <p class="lead">The code for the analysis is available on request. The clinical records and EEG contain sensitive patient information and are not public. The external datasets are public: TUH Abnormal EEG Corpus, NMT Scalp EEG Dataset and the IFCN sharp-transient clips (Kural et al., 2020).</p>
+</div></section>
+
+<section id="cite"><div class="wrap reveal">
+  <h2><small>Citation</small>BibTeX</h2>
+  <pre>@article{liuzzi2026eegist,
+  title   = {Recovering routine EEG report findings from the whole recording in emergency-department patients:
+             feature-based and deep-learning models},
+  author  = {Liuzzi, Piergiuseppe and Scarpino, Maenia and Corsi, Leonardo and Piccardi, Benedetta and Nazerian, Peiman
+             and Sgrilli, Ilaria and Oddo, Calogero Maria and Nencioni, Andrea and Mannini, Andrea and Grippo, Antonello},
+  year    = {2026},
+  note    = {Manuscript in preparation}
+}</pre>
+</div></section>
+</main>
+<footer><div class="wrap">EEGist · IRCCS Fondazione Don Carlo Gnocchi, Careggi University Hospital, Scuola Superiore Sant’Anna · schematic EEG animations are illustrations, not patient data.</div></footer>
+<div class="tip" id="tip"></div>
+
+<script>
+(() => {
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const $ = (s, r = document) => r.querySelector(s);
+const TAU = Math.PI * 2;
+const C = {roi:"#6FA8DC", eegnet:"#E58A6E", ddc:"#3FC2AB", sgc:"#A98BE0", teal:"#2DD4BF", amber:"#F2C14E"};
+const MODELS = [["roi","ROI-feature model",C.roi,"circle"],["eegnet","EEGNet",C.eegnet,"square"],["ddc","DualDomainConformer",C.ddc,"tri"],["sgc","SpatialGraphConformer",C.sgc,"diamond"]];
+
+/* ---------- pseudo EEG ---------- */
+const nz = (x, s) => Math.sin(x*7.31+s)*.35 + Math.sin(x*13.7+s*2.1)*.25 + Math.sin(x*23.3+s*3.7)*.18 + Math.sin(x*3.1+s*.7)*.3;
+const spw = (x, per) => { const u = ((x % per) + per) % per / per; return -Math.exp(-(((u-.05)/.012)**2)) * 1.6 + .55*Math.exp(-(((u-.22)/.07)**2)); };
+const alpha = (x, s, f = 10) => Math.sin(TAU*f*x + s) * (.55 + .45*Math.sin(TAU*.35*x + s*1.3));
+const delta = (x, s) => Math.sin(TAU*1.6*x + s) * 1.3 + Math.sin(TAU*2.7*x + s*2)*.5;
+
+/* ---------- animated background ---------- */
+const bg = $("#bg"), bx = bg.getContext("2d");
+function sizeCanvas(c, w, h) { const d = Math.min(devicePixelRatio || 1, 2); c.width = w*d; c.height = h*d; c.getContext("2d").setTransform(d,0,0,d,0,0); }
+function drawBg(t) {
+  const w = innerWidth, h = innerHeight; bx.clearRect(0,0,w,h);
+  const n = Math.max(10, Math.round(h/62)), burst = Math.sin(t*.07) > .88;
+  for (let c = 0; c < n; c++) {
+    const y0 = (c + .6) * h / n, amp = h/n*.42; bx.beginPath();
+    for (let px = 0; px <= w; px += 3) {
+      const x = px/w*6 + t*.6 + c*.37;
+      let v = nz(x, c*1.7)*.9 + alpha(x, c)*.7*(c % 3 === 0 ? 1 : .35);
+      if (burst && c % 5 === 1) v += spw(x, .33)*.9;
+      px ? bx.lineTo(px, y0 - v*amp) : bx.moveTo(px, y0 - v*amp);
+    }
+    const g = bx.createLinearGradient(0,0,w,0); g.addColorStop(0,"rgba(45,212,191,0)"); g.addColorStop(.25,"rgba(45,212,191,.26)"); g.addColorStop(.75,"rgba(111,168,220,.26)"); g.addColorStop(1,"rgba(111,168,220,0)");
+    bx.strokeStyle = g; bx.lineWidth = 1.2; bx.stroke();
+  }
+}
+function resizeBg() { sizeCanvas(bg, innerWidth, innerHeight); }
+addEventListener("resize", resizeBg); resizeBg();
+
+/* ---------- hero trace ---------- */
+const ht = $("#heroTrace"); let hx;
+function sizeHero() { const r = ht.getBoundingClientRect(); sizeCanvas(ht, r.width, r.height); hx = ht.getContext("2d"); }
+function drawHero(t) {
+  const r = ht.getBoundingClientRect(), w = r.width, h = r.height; hx.clearRect(0,0,w,h);
+  const g = hx.createLinearGradient(0,0,w,0); g.addColorStop(0,"rgba(45,212,191,0)"); g.addColorStop(.2,C.teal); g.addColorStop(.8,C.amber); g.addColorStop(1,"rgba(242,193,78,0)");
+  hx.strokeStyle = g; hx.lineWidth = 2; hx.beginPath();
+  for (let px = 0; px <= w; px += 2) {
+    const x = px/w*3.2 + t*.9; const u = px/w;
+    const v = (nz(x,2)*.4 + alpha(x,1)*.5) * (1 - .6*Math.exp(-(((u-.5)/.12)**2))) + spw(x, .6)*(Math.exp(-(((u-.5)/.12)**2)))*.9;
+    px ? hx.lineTo(px, h/2 - v*h*.32) : hx.moveTo(px, h/2 - v*h*.32);
+  }
+  hx.stroke();
+}
+addEventListener("resize", sizeHero); sizeHero();
+
+/* ---------- raw recording canvas with sliding window ---------- */
+const raw = $("#raw"); let rx;
+function sizeRaw() { const r = raw.getBoundingClientRect(); sizeCanvas(raw, r.width, r.height); rx = raw.getContext("2d"); }
+function drawRaw(t) {
+  const r = raw.getBoundingClientRect(), w = r.width, h = r.height; rx.clearRect(0,0,w,h);
+  const n = 9;
+  for (let c = 0; c < n; c++) {
+    const y0 = (c + .5) * h / n; rx.beginPath();
+    for (let px = 0; px <= w; px += 2) {
+      const x = px/w*8 + t*.5 + c*.4, v = nz(x, c*2.3)*.8 + alpha(x, c)*.55;
+      px ? rx.lineTo(px, y0 - v*h/n*.45) : rx.moveTo(px, y0 - v*h/n*.45);
+    }
+    rx.strokeStyle = "rgba(180,205,235,.75)"; rx.lineWidth = 1; rx.stroke();
+  }
+  const ww = w*.34, wx = ((t*.12) % 1.3 - .15) * w;
+  rx.fillStyle = "rgba(242,193,78,.14)"; rx.fillRect(wx, 0, ww, h); rx.strokeStyle = C.amber; rx.lineWidth = 1.4; rx.strokeRect(wx, 1, ww, h-2);
+}
+addEventListener("resize", sizeRaw); sizeRaw();
+
+/* ---------- finding icons ---------- */
+const FINDINGS = [
+ {k:"frequency", name:"Background frequency", ch:3, text:"Posterior alpha rhythm (about 10 Hz) against a slowed, theta–delta background. The model reports whether the background is slowed.",
+  f:(c,x,t)=>{ const m=(Math.sin(t*.5)+1)/2; return alpha(x,c)*(1-m)*1.1 + delta(x,c)*m*.8 + nz(x,c)*.25; }},
+ {k:"topography", name:"Topography", ch:4, text:"The usual front-to-back gradient: alpha strongest posteriorly (bottom traces), faster and lower activity anteriorly (top traces). It can be partly lost.",
+  f:(c,x,t,n)=>{ const p=c/(n-1); return alpha(x,c)*(.15+.95*p) + Math.sin(TAU*21*x+c)*.22*(1-p) + nz(x,c)*.2; }},
+ {k:"reactivity", name:"Reactivity", ch:3, text:"The posterior rhythm attenuates when the eyes open or with stimulation, then returns. Reactivity can be preserved or partial.",
+  f:(c,x,t)=>{ const q=((x*.9)%2+2)%2; const open = q>.7&&q<1.3; return alpha(x,c)*(open?.18:1.1) + nz(x,c)*(open?.55:.25); }},
+ {k:"asymmetry", name:"Asymmetry", ch:4, text:"Differences in amplitude or rhythm between the two hemispheres. Upper two traces: left; lower two: right.",
+  f:(c,x)=>(c<2?1.15:.4)*alpha(x,c)+nz(x,c)*.3},
+ {k:"epileptiform", name:"Epileptiform discharges", ch:4, text:"Interictal spike-and-wave complexes standing out of the background, recurring in a subset of channels.",
+  f:(c,x)=>nz(x,c)*.35 + alpha(x,c)*.3 + (c>=1&&c<=2? spw(x+.03*c,.9)*1.1 : 0)},
+ {k:"focal", name:"Focal slowing", ch:4, text:"Slow delta activity confined to a few channels of one region, on a normal background elsewhere.",
+  f:(c,x)=>c===1? delta(x,c)*.85+nz(x,c)*.2 : alpha(x,c)*.7+nz(x,c)*.3},
+ {k:"bilateral", name:"Bilateral slowing", ch:4, text:"Slow activity over both hemispheres, symmetric and widespread, replacing the normal background.",
+  f:(c,x)=>delta(x,c*.2)*.75+nz(x,c)*.25},
+ {k:"abnormal", name:"Abnormal EEG", ch:4, text:"The overall classification of the recording as normal or abnormal, combining background, discharges and slowing.",
+  f:(c,x,t)=>{ const m=(Math.sin(t*.4)+1)/2; return (alpha(x,c)*(1-m)*1.0 + (delta(x,c)*.7+(c===2?spw(x,.8)*.8:0))*m) + nz(x,c)*.25; }}
+];
+const findsEl = $("#finds"), iconCanvases = [];
+FINDINGS.forEach((f, i) => {
+  const b = document.createElement("button"); b.className = "find" + (i === 0 ? " sel" : ""); b.type = "button";
+  b.innerHTML = `<canvas></canvas>${f.name}`; findsEl.appendChild(b);
+  const cv = b.firstChild; iconCanvases.push(cv); b.addEventListener("click", () => select(i));
+});
+const big = $("#big"); let bigX, selected = 0;
+function select(i) {
+  selected = i; [...findsEl.children].forEach((e, k) => e.classList.toggle("sel", k === i));
+  $("#bigTitle").textContent = FINDINGS[i].name; $("#bigText").textContent = FINDINGS[i].text;
+}
+function sizeIcons() { iconCanvases.forEach(c => { const r = c.getBoundingClientRect(); sizeCanvas(c, r.width, r.height); }); const r = big.getBoundingClientRect(); sizeCanvas(big, r.width, r.height); bigX = big.getContext("2d"); }
+function drawTraces(ctx, w, h, f, t, nTr, lw, colour, labels) {
+  ctx.clearRect(0,0,w,h);
+  for (let c = 0; c < nTr; c++) {
+    const y0 = (c + .5) * h / nTr; ctx.beginPath();
+    for (let px = 0; px <= w; px += 2) {
+      const x = px/w*(labels ? 4 : 2.6) + t*.55, v = f(c, x, t, nTr);
+      px ? ctx.lineTo(px, y0 - v*h/nTr*.42) : ctx.moveTo(px, y0 - v*h/nTr*.42);
+    }
+    ctx.strokeStyle = colour; ctx.lineWidth = lw; ctx.stroke();
+    if (labels) { ctx.fillStyle = "rgba(147,163,186,.9)"; ctx.font = "11px system-ui"; ctx.fillText(labels[c] || "", 6, y0 - h/nTr*.3); }
+  }
+}
+function drawIcons(t) {
+  FINDINGS.forEach((f, i) => { const c = iconCanvases[i], r = c.getBoundingClientRect(); drawTraces(c.getContext("2d"), r.width, r.height, f.f, t + i, f.ch, 1.1, i === selected ? C.amber : "rgba(120,220,205,.9)"); });
+  const r = big.getBoundingClientRect(), f = FINDINGS[selected];
+  const labs = selected === 3 ? ["F3 (L)","C3 (L)","C4 (R)","F4 (R)"] : ["Fp","C","P","O"].slice(0, 4);
+  drawTraces(bigX, r.width, r.height, f.f, t, f.ch, 1.8, C.amber, f.ch === 3 ? ["Fz","Cz","Pz"] : labs);
+}
+addEventListener("resize", sizeIcons); sizeIcons(); select(0);
+
+/* ---------- charts ---------- */
+const NS = "http://www.w3.org/2000/svg";
+const el = (tag, attrs, parent) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent && parent.appendChild(e); return e; };
+const tip = $("#tip");
+function tooltip(node, html) {
+  node.addEventListener("mousemove", e => { tip.innerHTML = html; tip.style.opacity = 1; tip.style.left = (e.clientX + 14) + "px"; tip.style.top = (e.clientY + 14) + "px"; });
+  node.addEventListener("mouseleave", () => tip.style.opacity = 0);
+}
+function marker(parent, kind, x, y, colour, size = 5) {
+  if (kind === "circle") return el("circle", {cx:x, cy:y, r:size, fill:colour}, parent);
+  if (kind === "square") return el("rect", {x:x-size, y:y-size, width:2*size, height:2*size, rx:1.5, fill:colour}, parent);
+  if (kind === "tri") return el("path", {d:`M${x} ${y-size*1.2}L${x+size*1.15} ${y+size*.9}L${x-size*1.15} ${y+size*.9}Z`, fill:colour}, parent);
+  return el("path", {d:`M${x} ${y-size*1.3}L${x+size*1.1} ${y}L${x} ${y+size*1.3}L${x-size*1.1} ${y}Z`, fill:colour}, parent);
+}
+const legend = $("#legModels");
+MODELS.forEach(m => { legend.insertAdjacentHTML("beforeend", `<span><i style="background:${m[2]}"></i>${m[1]}</span>`); });
+
+// test-set AUROC (point, 95% CI low, high): ROI, EEGNet, DDC, SGC
+const AUROC = [
+ ["Background frequency",[.891,.854,.925],[.863,.818,.904],[.894,.856,.928],[.896,.858,.929]],
+ ["Topography",[.845,.801,.887],[.823,.771,.873],[.837,.788,.883],[.840,.791,.886]],
+ ["Reactivity",[.856,.813,.897],[.846,.797,.890],[.853,.805,.894],[.861,.816,.902]],
+ ["Asymmetry",[.826,.769,.880],[.801,.729,.866],[.850,.791,.905],[.889,.841,.935]],
+ ["Epileptiform discharges",[.807,.751,.858],[.816,.759,.869],[.813,.759,.862],[.790,.734,.845]],
+ ["Focal slowing",[.793,.726,.852],[.816,.758,.867],[.825,.767,.876],[.829,.771,.878]],
+ ["Bilateral slowing",[.714,.640,.785],[.704,.630,.780],[.676,.594,.759],[.698,.619,.776]],
+ ["Abnormal EEG",[.856,.811,.898],[.836,.789,.881],[.870,.829,.909],[.870,.828,.909]]];
+(function dots() {
+  const svg = $("#dots"), W = 980, rowH = 44, H = AUROC.length*rowH + 52, L = 190, R = 20, lo = .6, hi = 1;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const X = v => L + (v - lo)/(hi - lo)*(W - L - R);
+  AUROC.forEach((row, i) => { if (i % 2 === 0) el("rect", {x:0, y:26 + i*rowH - rowH/2 + 2, width:W, height:rowH - 4, fill:"rgba(255,255,255,.025)", rx:6}, svg); });
+  for (let v = .6; v <= 1.0001; v += .1) { el("line", {x1:X(v), x2:X(v), y1:8, y2:H-34, stroke:"rgba(255,255,255,.08)"}, svg); const tx = el("text", {x:X(v), y:H-14, "text-anchor":"middle"}, svg); tx.textContent = v.toFixed(1); }
+  const ax = el("text", {x:(L+W-R)/2, y:H-0, "text-anchor":"middle"}, svg); ax.textContent = "AUROC";
+  AUROC.forEach((row, i) => {
+    const y = 26 + i*rowH; const lab = el("text", {x:L-14, y:y+4, "text-anchor":"end", class:"t"}, svg); lab.textContent = row[0];
+    MODELS.forEach((m, k) => {
+      const [v, a, b] = row[k+1], yy = y + (k - 1.5)*7;
+      const g = el("g", {}, svg); el("line", {x1:X(a), x2:X(b), y1:yy, y2:yy, stroke:m[2], "stroke-width":1.6, opacity:.5}, g); marker(g, m[3], X(v), yy, m[2], 4.2);
+      tooltip(g, `<b>${row[0]}</b><br>${m[1]}: ${v.toFixed(3)} (${a.toFixed(3)}–${b.toFixed(3)})`);
+    });
+  });
+})();
+
+// external validation: [AUROC, specificity at 0.5] for EEGNet, DDC, SGC
+const EXT = [
+ ["TUH-Abnormal, evaluation set (276 recordings)",[[.80,.61],[.81,.21],[.83,.38]]],
+ ["TUH-Abnormal, training partition (2,717)",[[.82,.68],[.78,.22],[.79,.38]]],
+ ["NMT Scalp EEG Dataset (2,417)",[[.70,.38],[.69,.01],[.63,.00]]],
+ ["IFCN clips, epileptiform vs epilepsy (100)",[[.78,.70],[.77,.48],[.71,.43]]]];
+let extMode = "auroc";
+function drawExt() {
+  const svg = $("#ext"); svg.innerHTML = ""; const W = 980, rowH = 66, H = EXT.length*rowH + 30, L = 300, R = 40;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const lo = extMode === "auroc" ? .5 : 0, hi = 1, X = v => L + (v - lo)/(hi - lo)*(W - L - R);
+  for (let v = lo; v <= hi + .001; v += .1) { el("line", {x1:X(v), x2:X(v), y1:4, y2:H-24, stroke:"rgba(255,255,255,.08)"}, svg); const tx = el("text", {x:X(v), y:H-6, "text-anchor":"middle"}, svg); tx.textContent = v.toFixed(1); }
+  EXT.forEach((row, i) => {
+    const y = 18 + i*rowH; const lab = el("text", {x:L-14, y:y+22, "text-anchor":"end", class:"t"}, svg); lab.textContent = row[0];
+    row[1].forEach((vals, k) => {
+      const m = MODELS[k+1], v = vals[extMode === "auroc" ? 0 : 1], yy = y + k*16 + 4;
+      const g = el("g", {}, svg); const bar = el("rect", {x:L, y:yy, width:0, height:11, rx:5, fill:m[2], opacity:.9}, g);
+      const val = el("text", {x:X(v)+6, y:yy+10, class:"t"}, g); val.textContent = v.toFixed(2);
+      requestAnimationFrame(() => { bar.style.transition = "width .7s cubic-bezier(.2,.8,.2,1)"; bar.setAttribute("width", Math.max(2, X(v) - L)); });
+      tooltip(g, `<b>${row[0]}</b><br>${m[1]}: AUROC ${vals[0].toFixed(2)}, specificity at 0.5 ${vals[1].toFixed(2)}`);
+    });
+  });
+  if (extMode === "auroc") { el("line", {x1:X(.5), x2:X(.5), y1:4, y2:H-24, stroke:"rgba(255,255,255,.25)", "stroke-dasharray":"3 4"}, svg); }
+}
+drawExt();
+$("#seg").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; extMode = b.dataset.m; [...$("#seg").children].forEach(x => x.classList.toggle("on", x === b)); drawExt(); });
+const extLegend = document.createElement("div"); extLegend.className = "legend"; MODELS.slice(1).forEach(m => extLegend.insertAdjacentHTML("beforeend", `<span><i style="background:${m[2]}"></i>${m[1]}</span>`)); $("#seg").after(extLegend);
+
+/* ---------- bandwidth demo ---------- */
+const BW = [["EEGNet", C.eegnet, .58, .60, .77, .77], ["DualDomainConformer", C.ddc, .77, .98, .79, .79], ["SpatialGraphConformer", C.sgc, .71, 1.00, .81, .79]];   // mean P(abnormal) and AUROC, original and low-passed
+const bwEl = $("#bw"); const bwFill = [], bwVal = [], bwSpec = [];
+BW.forEach(b => { const d = document.createElement("div"); d.className = "bar"; d.innerHTML = `<span>${b[0]}<br><small class="sp"></small></span><div class="track"><div class="fill" style="background:${b[1]}"></div></div><b>0</b>`; bwEl.appendChild(d); bwFill.push(d.querySelector(".fill")); bwVal.push(d.querySelector("b")); bwSpec.push(d.querySelector(".sp")); });
+const spec = $("#spec"); let sx, cut = 0, cutTarget = 0;
+function sizeSpec() { const r = spec.getBoundingClientRect(); sizeCanvas(spec, r.width, r.height); sx = spec.getContext("2d"); }
+function drawSpec() {
+  const r = spec.getBoundingClientRect(), w = r.width, h = r.height, pl = 38, pb = 26; sx.clearRect(0,0,w,h);
+  const X = f => pl + f/45*(w - pl - 10), Y = p => 12 + (1 - p)*(h - pb - 18);
+  sx.strokeStyle = "rgba(255,255,255,.18)"; sx.lineWidth = 1; sx.beginPath(); sx.moveTo(pl, 10); sx.lineTo(pl, h-pb); sx.lineTo(w-6, h-pb); sx.stroke();
+  sx.fillStyle = "rgba(147,163,186,.9)"; sx.font = "11px system-ui"; sx.textAlign = "center";
+  [0,10,20,30,40].forEach(f => sx.fillText(f, X(f), h-9)); sx.fillText("Hz", w-14, h-9);
+  sx.save(); sx.translate(12, h/2); sx.rotate(-Math.PI/2); sx.fillText("log power", 0, 0); sx.restore();
+  const power = f => { const full = 1/(1 + (f/6)**1.7) + .45*Math.exp(-(((f-10)/2)**2)) + .045; return f > 35 ? full*(1 - cut) + .008*cut : full; };
+  const level = f => Math.min(1, Math.max(0, (Math.log10(power(f)) + 2.3)/2.3));
+  sx.beginPath(); for (let f = .5; f <= 45; f += .25) { f === .5 ? sx.moveTo(X(f), Y(level(f))) : sx.lineTo(X(f), Y(level(f))); }
+  sx.strokeStyle = cut > .5 ? C.amber : C.teal; sx.lineWidth = 2.2; sx.stroke();
+  sx.fillStyle = "rgba(242,193,78,.08)"; sx.fillRect(X(35), 10, X(45) - X(35), h - pb - 10);
+  sx.fillStyle = "rgba(242,193,78,.85)"; sx.textAlign = "center"; sx.fillText("35–45 Hz", (X(35)+X(45))/2, 24);
+}
+function updateBw() {
+  cut += (cutTarget - cut)*.12; if (Math.abs(cutTarget - cut) < .002) cut = cutTarget;
+  BW.forEach((b, i) => { const v = b[2] + (b[3] - b[2])*cut; bwFill[i].style.width = (v*100) + "%"; bwVal[i].textContent = v.toFixed(2); bwSpec[i].textContent = "AUROC " + (cut > .5 ? b[5] : b[4]).toFixed(2); });
+}
+$("#lp").addEventListener("click", e => { const b = e.currentTarget; b.classList.toggle("on"); cutTarget = b.classList.contains("on") ? 1 : 0; if (reduce) { cut = cutTarget; updateBw(); drawSpec(); } });
+addEventListener("resize", sizeSpec); sizeSpec();
+
+/* ---------- reveal and count-up ---------- */
+const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } }), {threshold: .12});
+document.querySelectorAll(".reveal").forEach(n => io.observe(n));
+const co = new IntersectionObserver(es => es.forEach(e => {
+  if (!e.isIntersecting) return; co.unobserve(e.target);
+  const n = e.target, to = parseFloat(n.dataset.count), dec = +n.dataset.dec, suf = n.dataset.suffix || "", t0 = performance.now();
+  const step = now => { const k = Math.min(1, (now - t0)/1400), v = to*(1 - Math.pow(1 - k, 3)); n.textContent = (dec ? v.toFixed(dec) : Math.round(v).toLocaleString("en-US")) + suf; if (k < 1) requestAnimationFrame(step); };
+  reduce ? n.textContent = (dec ? to.toFixed(dec) : to.toLocaleString("en-US")) + suf : requestAnimationFrame(step);
+}), {threshold: .6});
+document.querySelectorAll("[data-count]").forEach(n => co.observe(n));
+
+/* ---------- loop ---------- */
+let last = 0, running = true; document.addEventListener("visibilitychange", () => running = !document.hidden);
+function frame(ms) {
+  requestAnimationFrame(frame); if (!running || ms - last < 33) return; last = ms; const t = ms/1000;
+  drawBg(t); drawHero(t); drawRaw(t); drawIcons(t); updateBw(); drawSpec();
+}
+if (reduce) { drawBg(3); drawHero(3); drawRaw(3); drawIcons(3); updateBw(); drawSpec(); } else requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
